@@ -1,0 +1,86 @@
+{
+  "name": "@blcklab/anyo-avatar-viewer",
+  "version": "0.2.0-alpha.8",
+  "description": "Framework-independent avatar viewer core with VRM/VRMA playback, expressions, look-at, Sekai64 navigation, visual quality, and browser recovery.",
+  "type": "module",
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "docs"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./browser": {
+      "types": "./dist/browser.d.ts",
+      "import": "./dist/browser.js"
+    },
+    "./sekai64": {
+      "types": "./dist/sekai64/index.d.ts",
+      "import": "./dist/sekai64/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "npm run build && node --test tests/*.test.mjs",
+    "check": "npm test && node scripts/check-boundaries.mjs && npm run check:vanilla",
+    "demo": "node scripts/serve-demo.mjs",
+    "prepack": "npm run build",
+    "check:vanilla": "node scripts/check-vanilla.mjs",
+    "prepublishOnly": "npm run check"
+  },
+  "peerDependencies": {
+    "@blcklab/anyo-avatar": "0.2.0",
+    "@blcklab/sekai64": "0.8.0-rc.33"
+  },
+  "peerDependenciesMeta": {
+    "@blcklab/anyo-avatar": {
+      "optional": true
+    },
+    "@blcklab/sekai64": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "typescript": "5.8.3",
+    "@blcklab/anyo-avatar": "0.2.0",
+    "@blcklab/sekai64": "0.8.0-rc.33"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "license": "MIT",
+  "author": "blcklab",
+  "publishConfig": {
+    "access": "public",
+    "tag": "next"
+  },
+  "keywords": [
+    "anyo",
+    "avatar",
+    "viewer",
+    "vrm",
+    "vrma",
+    "gltf",
+    "glb",
+    "sekai64",
+    "3d",
+    "webgpu",
+    "webgl2",
+    "vanilla-js"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/blcklab/anyo-avatar-viewer.git"
+  },
+  "bugs": {
+    "url": "https://github.com/blcklab/anyo-avatar-viewer/issues"
+  },
+  "homepage": "https://github.com/blcklab/anyo-avatar-viewer#readme"
+}

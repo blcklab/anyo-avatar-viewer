@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Anyo Avatar Viewer</title>
+<style>
+  * { box-sizing: border-box; } body { margin: 0; color: #eceef5; background: #11141c; font: 15px/1.5 system-ui,sans-serif; }
+  main { max-width: 1100px; margin: 40px auto; padding: 24px; } header { display: flex; align-items: baseline; justify-content: space-between; gap: 24px; }
+  h1 { margin: 0; font-size: 27px; letter-spacing: -.8px; } header span { color: #8fa3c8; font-size: 13px; }
+  .layout { display: grid; grid-template-columns: 1fr 310px; margin-top: 24px; gap: 20px; }
+  .stage { height: 580px; background: radial-gradient(ellipse at 50% 75%,#364058,#1a1f2b 70%); border: 1px solid #303949; border-radius: 20px; overflow: hidden; position: relative; }
+  canvas { display: block; width: 100%; height: 100%; } .empty { position: absolute; inset: 0; display: grid; place-content: center; color: #aab8d2; pointer-events: none; text-align: center; padding: 32px; }
+  .empty strong { font-size: 21px; color: #dbe5f8; } aside { background: #1b202b; padding: 24px; border-radius: 20px; }
+  h2 { font-size: 12px; letter-spacing: 1.6px; text-transform: uppercase; color: #93a6ca; margin: 0 0 14px; }
+  label { display: block; margin: 15px 0 8px; } input, select, button { font: inherit; max-width: 100%; }
+  input[type=file] { font-size: 12px; width: 100%; } select, button { border: 1px solid #435069; border-radius: 8px; background: #2c3548; color: #fff; padding: 9px 12px; }
+  select { width: 100%; } button { cursor: pointer; } button:disabled, input:disabled, select:disabled { opacity: .4; cursor: default; }
+  .buttons { display: flex; gap: 8px; margin: 16px 0; } .primary { background: #5575db; border-color: #7897f7; }
+  input[type=range] { width: 100%; accent-color: #8ca9ff; } small, .hint { color: #a7b2c7; font-size: 12px; } hr { border: 0; border-top: 1px solid #354052; margin: 26px 0; }
+  #status { margin-top: 22px; font-size: 13px; color: #bdc9e2; overflow-wrap: anywhere; } #status.error { color: #ffb8b4; }
+  .time { display: flex; justify-content: space-between; color: #a7b2c7; font: 12px ui-monospace,monospace; }
+  @media(max-width:760px) { main { margin: 0; padding: 18px; } .layout { grid-template-columns: 1fr; } .stage { height: 420px; } header { display: block; } }
+</style>
+<script type="importmap">
+{"imports":{
+  "@blcklab/anyo-avatar-viewer/browser":"/dist/browser.js",
+  "@blcklab/sekai64":"/vendor/sekai64/index.js",
+  "@blcklab/sekai64/animation":"/vendor/sekai64/animation/index.js",
+  "@blcklab/sekai64/gltf":"/vendor/sekai64/gltf/index.js",
+  "@blcklab/sekai64/assets":"/vendor/sekai64/assets/index.js",
+  "@blcklab/anyo-avatar/vrm":"/vendor/anyo-avatar/vrm/index.js",
+  "@blcklab/anyo-avatar/sekai64-binding":"/vendor/anyo-avatar/sekai64-binding/index.js"
+}}
+</script>
+<main>
+  <header><h1>Anyo Avatar Viewer</h1><span>Model + motion · Vanilla JavaScript · Framework independent</span></header>
+  <div class="layout">
+    <div class="stage"><canvas id="canvas" aria-label="Animated avatar viewport"></canvas><div class="empty" id="empty"><strong>Your avatar, in motion.</strong><p>Choose a VRM avatar to get started.</p></div></div>
+    <aside>
+      <h2>01 / Avatar</h2>
+      <label for="model">Load a model</label><input id="model" type="file" accept=".vrm,.glb" disabled>
+      <p class="hint">VRM or self-contained GLB. Files are read locally in your browser.</p>
+      <hr><h2>02 / Animation</h2>
+      <label for="animation">Add animation</label><input id="animation" type="file" accept=".glb,.vrma" disabled>
+      <p class="hint">VRMA: body motion and morph expressions, including blinking. GLB: same rig and rest pose. FBX is not supported.</p>
+      <label for="clip">Animation clip</label><select id="clip" disabled><option>No animations loaded</option></select>
+      <div class="buttons"><button class="primary" id="play" disabled>Play</button><button id="pause" disabled>Pause</button><button id="stop" disabled>Stop</button></div>
+      <label for="seek">Timeline</label><input id="seek" type="range" min="0" max="1" step="0.001" value="0" disabled>
+      <div class="time"><span id="time">0.00 s</span><span id="duration">0.00 s</span></div>
+      <label for="speed">Speed <small id="speedLabel">1.0×</small></label><input id="speed" type="range" min="0" max="2" step="0.1" value="1" disabled>
+      <label><input type="checkbox" id="loop" checked> Loop animation</label>
+      <div id="status" role="status" aria-live="polite">Starting renderer…</div>
+      <p class="hint" id="diagnostic" role="status"></p>
+    </aside>
+  </div>
+</main>
+<script type="module" src="/examples/browser/demo.js"></script>
+</html>

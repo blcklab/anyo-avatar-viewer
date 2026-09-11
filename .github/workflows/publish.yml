@@ -1,0 +1,39 @@
+name: Publish Package
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: npm
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - run: npm install
+      - run: npm run check
+      - name: Verify tag and select npm dist-tag
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          if [ "${GITHUB_REF_NAME}" != "v${VERSION}" ]; then
+            echo "Tag ${GITHUB_REF_NAME} does not match package version v${VERSION}."
+            exit 1
+          fi
+          if [[ "${VERSION}" == *-* ]]; then
+            echo "NPM_DIST_TAG=next" >> "$GITHUB_ENV"
+          else
+            echo "NPM_DIST_TAG=latest" >> "$GITHUB_ENV"
+          fi
+      - run: npm publish --access public --provenance --tag "$NPM_DIST_TAG"
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
