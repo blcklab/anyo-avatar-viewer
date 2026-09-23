@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.0-alpha.9
+
+- Refresh peer metadata for the frozen S24 renderer line without changing Viewer runtime behavior.
+- Accept `@blcklab/sekai64 >=0.8.0-0 <0.9.0` instead of pinning only `0.8.0-rc.33`.
+- Accept compatible `@blcklab/anyo-avatar` `0.2.x` releases.
+- Validate the existing Viewer runtime against Sekai64 `0.8.0-rc.34`; the 45-test Viewer regression suite remains green.
+
 ## 0.2.0-alpha.8
 
 - Publish-prep: add MIT/public package metadata and keep npm contents limited to runtime/docs artifacts.

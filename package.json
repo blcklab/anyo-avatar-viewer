@@ -1,6 +1,6 @@
 {
   "name": "@blcklab/anyo-avatar-viewer",
-  "version": "0.2.0-alpha.8",
+  "version": "0.2.0-alpha.9",
   "description": "Framework-independent avatar viewer core with VRM/VRMA playback, expressions, look-at, Sekai64 navigation, visual quality, and browser recovery.",
   "type": "module",
   "sideEffects": false,
@@ -36,8 +36,8 @@
     "prepublishOnly": "npm run check"
   },
   "peerDependencies": {
-    "@blcklab/anyo-avatar": "0.2.0",
-    "@blcklab/sekai64": "0.8.0-rc.33"
+    "@blcklab/anyo-avatar": "^0.2.1",
+    "@blcklab/sekai64": ">=0.8.0-0 <0.9.0"
   },
   "peerDependenciesMeta": {
     "@blcklab/anyo-avatar": {
@@ -49,8 +49,8 @@
   },
   "devDependencies": {
     "typescript": "5.8.3",
-    "@blcklab/anyo-avatar": "0.2.0",
-    "@blcklab/sekai64": "0.8.0-rc.33"
+    "@blcklab/anyo-avatar": "0.2.1",
+    "@blcklab/sekai64": "0.8.0-rc.34"
   },
   "engines": {
     "node": ">=22.12.0"
