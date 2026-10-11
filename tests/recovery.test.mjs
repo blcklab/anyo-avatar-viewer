@@ -45,3 +45,58 @@ test('WebGPU loss diagnostic suspends immediately and starts automatic recovery'
   assert.ok(suspended >= 1); assert.equal(resumed, 1); assert.equal(controller.getSnapshot().status, 'ready');
   controller.dispose();
 });
+
+function deferred() {
+  let resolve, reject;
+  const promise = new Promise((res, rej) => { resolve = res; reject = rej; });
+  return { promise, resolve, reject };
+}
+
+test('dispose during renderer recovery prevents module reinitialization and resume', async () => {
+  const gate = deferred();
+  const engine = fakeEngine();
+  engine.renderer.recover = () => { engine.calls.push('renderer'); return gate.promise; };
+  const controller = new Sekai64AvatarRecoveryController(engine, {
+    suspend: () => engine.calls.push('suspend'), resume: () => engine.calls.push('resume'), refresh: () => engine.calls.push('refresh'),
+  });
+  const pending = controller.recover();
+  controller.dispose();
+  gate.resolve();
+  await pending;
+  assert.equal(controller.getSnapshot().status, 'disposed');
+  assert.deepEqual(engine.calls, ['suspend', 'renderer']);
+});
+
+test('dispose during module recovery prevents refresh and resume', async () => {
+  const gate = deferred();
+  const engine = fakeEngine();
+  engine.recoverModules = async context => { engine.calls.push(`modules:${context.attempt}`); await gate.promise; };
+  const controller = new Sekai64AvatarRecoveryController(engine, {
+    suspend: () => engine.calls.push('suspend'), resume: () => engine.calls.push('resume'), refresh: () => engine.calls.push('refresh'),
+  });
+  const pending = controller.recover();
+  await new Promise(resolve => setImmediate(resolve));
+  controller.dispose();
+  gate.resolve();
+  await pending;
+  assert.equal(controller.getSnapshot().status, 'disposed');
+  assert.deepEqual(engine.calls, ['suspend', 'renderer', 'modules:1']);
+});
+
+test('dispose after a recovery failure suppresses retries and diagnostics', async () => {
+  const gate = deferred();
+  const engine = fakeEngine();
+  engine.renderer.recover = () => { engine.calls.push('renderer'); return gate.promise; };
+  const diagnostics = [];
+  const controller = new Sekai64AvatarRecoveryController(engine, {
+    maxAttempts: 3, suspend: () => engine.calls.push('suspend'), resume: () => engine.calls.push('resume'),
+    refresh: () => engine.calls.push('refresh'), onDiagnostic: message => diagnostics.push(message),
+  });
+  const pending = controller.recover();
+  controller.dispose();
+  gate.reject(new Error('late device failure'));
+  await pending;
+  assert.equal(controller.getSnapshot().status, 'disposed');
+  assert.deepEqual(engine.calls, ['suspend', 'renderer']);
+  assert.deepEqual(diagnostics, []);
+});

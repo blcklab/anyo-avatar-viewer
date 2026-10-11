@@ -69,6 +69,7 @@ export class Sekai64AvatarRecoveryController {
   }
   private async runRecovery(reason?: unknown): Promise<void> {
     this.options.suspend();
+    if (this.disposed) return;
     const renderer = this.engine.renderer as Partial<RecoverableRenderer>;
     if (typeof renderer.recover !== 'function') {
       const error = new Error('The active Sekai64 renderer does not support automatic recovery.');
@@ -77,33 +78,43 @@ export class Sekai64AvatarRecoveryController {
     const maximum = Math.max(1, Math.floor(this.options.maxAttempts ?? 2));
     let lastError: unknown;
     for (let attempt = 1; attempt <= maximum; attempt += 1) {
+      if (this.disposed) return;
       this.patch('recovering', attempt, null);
+      if (this.disposed) return;
       try {
         await renderer.recover({
           reason,
-          onProgress: (_progress, text) => { if (text) this.options.onDiagnostic?.(text); },
+          onProgress: (_progress, text) => { if (!this.disposed && text) this.options.onDiagnostic?.(text); },
         });
+        if (this.disposed) return;
         await this.engine.recoverModules({
           backend: this.engine.capabilities.backend,
           attempt,
           reason,
-          report: (_progress, text) => { if (text) this.options.onDiagnostic?.(text); },
+          report: (_progress, text) => { if (!this.disposed && text) this.options.onDiagnostic?.(text); },
         });
+        if (this.disposed) return;
         this.engine.resizeToDisplaySize();
+        if (this.disposed) return;
         this.options.refresh();
+        if (this.disposed) return;
         this.patch('ready', attempt, null);
+        if (this.disposed) return;
         this.options.resume();
         return;
       } catch (error) {
+        if (this.disposed) return;
         lastError = error;
         this.options.onDiagnostic?.(`Renderer recovery attempt ${attempt}/${maximum} failed: ${message(error)}`);
       }
     }
+    if (this.disposed) return;
     const error = new Error(`Sekai64 renderer recovery failed after ${maximum} attempts: ${message(lastError)}`);
     this.patch('failed', maximum, error.message);
     throw error;
   }
   private patch(status: Sekai64RecoveryStatus, attempt: number, error: string | null) {
+    if (this.disposed) return;
     this.state = freeze(status, attempt, error, this.engine.capabilities.backend);
     for (const listener of [...this.listeners]) { try { listener(); } catch { /* UI observers do not own recovery. */ } }
   }

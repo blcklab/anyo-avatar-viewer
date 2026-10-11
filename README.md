@@ -2,7 +2,7 @@
 
 Framework-independent avatar viewer core for VRM/GLB models, VRMA and glTF animation, expressions, look-at, camera navigation, high-quality Sekai64 rendering, and browser recovery.
 
-> `0.2.0-alpha.8` is a prerelease and is published under the `next` npm dist-tag.
+> `0.2.0-alpha.10` is a prerelease and is published under the `next` npm dist-tag.
 
 ## Installation
 

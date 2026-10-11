@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.0-alpha.10
+
+- Harden GPU recovery during viewer disposal: asynchronous renderer/module recovery no longer resumes rendering, retries, or mutates disposed state after the host is destroyed.
+- Add three deterministic lifecycle regression tests, including late recovery failures.
+- Validate development against `@blcklab/anyo-avatar@0.2.2` and `@blcklab/sekai64@0.8.0-rc.56`; preserve existing optional peer dependency ranges.
+- Preserve the renderer-neutral API, VRM/VRMA behavior, quality presets, shaders, camera controls and performance budgets.
+
 ## 0.2.0-alpha.9
 
 - Refresh peer metadata for the frozen S24 renderer line without changing Viewer runtime behavior.
