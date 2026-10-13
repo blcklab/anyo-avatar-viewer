@@ -26,8 +26,8 @@ export { Sekai64AvatarVisualController, avatarVisualPreset, usesCharacterRenderi
 export { compensateNormalizedMtoonOutlines } from './mtoon-outline.js';
 export type { Sekai64AvatarEnvironment, Sekai64AvatarQuality, Sekai64AvatarBackground, Sekai64AvatarVisualOptions } from './visual.js';
 export { Sekai64AvatarCameraController } from './camera.js';
-export type { Sekai64AvatarCameraOptions, Sekai64AvatarCameraSnapshot } from './camera.js';
-export type { Sekai64FocusPreset } from './model-info.js';
+export type { Sekai64AvatarCameraOptions, Sekai64AvatarCameraSnapshot, Sekai64FrameOptions, Sekai64FrameState } from './camera.js';
+export type { Sekai64FocusPreset, Sekai64FramePreset } from './model-info.js';
 export { Sekai64AvatarRecoveryController } from './recovery.js';
 export type { Sekai64RecoverySnapshot, Sekai64RecoveryStatus, Sekai64AvatarRecoveryOptions } from './recovery.js';
 

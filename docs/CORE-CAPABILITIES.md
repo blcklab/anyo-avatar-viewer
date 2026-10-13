@@ -1,4 +1,4 @@
-# Reusable core capability surface — 0.2.0-alpha.7
+# Reusable core capability surface — 0.2.0-alpha.11
 
 This document defines what belongs in `@blcklab/anyo-avatar-viewer` before any Vue, React, Svelte, or other adapter is introduced.
 
@@ -40,8 +40,9 @@ The package creates no buttons, menus, custom elements, framework components, or
 - optional transparent-canvas output;
 - orbit, wheel zoom and middle/right drag pan;
 - bounds-based fit/reset;
-- body, face and eyes focus presets;
-- programmatic focus, zoom, rotate and pan;
+- body, face and eyes point-focus presets;
+- semantic `body`, `portrait`, `face`, and `eyes` framing with viewport-aware responsive recomputation;
+- exact-radian orbit rotation plus programmatic focus, zoom, rotate and pan;
 - optional model auto-rotation;
 - stable camera snapshots/subscriptions;
 - automatic WebGL context/WebGPU device recovery with observable state;

@@ -2,7 +2,15 @@ import { Vector3, type Camera } from '@blcklab/sekai64';
 import { OrbitControls } from '@blcklab/sekai64/controls';
 import type { GltfModelNode } from '@blcklab/sekai64/gltf';
 import type { ViewerBounds, ViewerVec3 } from '../types.js';
-import { getNodeWorldBounds, getViewerBounds, resolveFocusPoint, type Sekai64FocusPreset } from './model-info.js';
+import {
+  getNodeWorldBounds,
+  getViewerBounds,
+  resolveFocusPoint,
+  resolveFrameRegion,
+  type Sekai64FocusPreset,
+  type Sekai64FramePreset,
+  type Sekai64FrameRegion,
+} from './model-info.js';
 
 export interface Sekai64AvatarCameraOptions {
   readonly camera: Camera;
@@ -13,6 +21,23 @@ export interface Sekai64AvatarCameraOptions {
   readonly zoomSpeed?: number;
   readonly damping?: number;
 }
+export interface Sekai64FrameOptions {
+  /** Fraction of the viewport the semantic frame should occupy. Defaults are preset-specific. */
+  readonly coverage?: number;
+  /** Horizontal target offset in frame-width units. Positive moves the camera target right. */
+  readonly offsetX?: number;
+  /** Vertical target offset in frame-height units. Positive moves the camera target up. */
+  readonly offsetY?: number;
+  /** Recompute distance when the render surface changes aspect/size. Defaults to false. */
+  readonly responsive?: boolean;
+}
+export interface Sekai64FrameState {
+  readonly preset: Sekai64FramePreset;
+  readonly coverage: number;
+  readonly offsetX: number;
+  readonly offsetY: number;
+  readonly responsive: boolean;
+}
 export interface Sekai64AvatarCameraSnapshot {
   readonly target: ViewerVec3;
   readonly position: ViewerVec3;
@@ -21,6 +46,7 @@ export interface Sekai64AvatarCameraSnapshot {
   readonly autoRotate: boolean;
   readonly autoRotateSpeed: number;
   readonly bounds: ViewerBounds | null;
+  readonly framing: Sekai64FrameState | null;
 }
 
 /** Headless Sekai Viewer-style camera/navigation controller. It owns no UI or CSS. */
@@ -37,6 +63,9 @@ export class Sekai64AvatarCameraController {
   private panY = 0;
   private readonly eventTarget?: EventTarget;
   private readonly pointerPan: boolean;
+  private framing?: Sekai64FrameState;
+  private framingRegion?: Sekai64FrameRegion;
+  private framingViewport = '';
   private listeners = new Set<() => void>();
   private lastSignature = '';
   private snapshot!: Sekai64AvatarCameraSnapshot;
@@ -66,13 +95,15 @@ export class Sekai64AvatarCameraController {
     this.assertAlive();
     this.model = model;
     this.authoredRotation = [model.rotation.x, model.rotation.y, model.rotation.z];
-    if (this.options.autoFit !== false) this.fit();
+    if (this.framing) this.applyFrame(this.framing, true);
+    else if (this.options.autoFit !== false) this.fitModel();
     this.notifyIfChanged();
   }
   detachModel(model?: GltfModelNode): void {
     if (model && this.model !== model) return;
     this.model = undefined;
     this.authoredRotation = undefined;
+    this.framingRegion = undefined;
     this.notifyIfChanged();
   }
   getBounds(): ViewerBounds | null { return this.model ? getViewerBounds(this.model) : null; }
@@ -81,37 +112,23 @@ export class Sekai64AvatarCameraController {
     this.assertAlive(); this.listeners.add(listener); return () => this.listeners.delete(listener);
   }
 
+  /** Full authored-model fit. Use `frame('portrait')` for semantic upper-body framing. */
   fit(): void {
     this.assertAlive();
-    const model = this.model;
-    if (!model || model.disposed) return;
-    const bounds = getNodeWorldBounds(model);
-    if (!bounds || bounds.isEmpty()) return;
-    const center = bounds.getCenter(new Vector3());
-    const size = bounds.getSize(new Vector3());
-    const maxDimension = Math.max(size.x, size.y, size.z, 0.001);
-    const radius = Math.max(0.001, size.length() * 0.5);
-    const fovRadians = ((this.options.camera as any).fieldOfView * Math.PI) / 180;
-    const fitDistance = Math.max(radius / Math.sin(Math.max(0.12, fovRadians * 0.5)), maxDimension * 1.1) * 1.18;
-    this.controls.target.copy(center);
-    this.options.camera.near = Math.max(0.001, fitDistance / 1000);
-    this.options.camera.far = Math.max(100, fitDistance * 80);
-    this.options.camera.position.copy(center).addScaledVector(this.initialViewDirection, fitDistance);
-    this.controls.minDistance = Math.max(radius * 0.08, 0.02);
-    this.controls.maxDistance = Math.max(fitDistance * 12, radius * 20);
-    this.controls.syncFromCamera();
-    this.controls.update(0);
-    this.notifyIfChanged();
+    this.clearFraming(false);
+    this.fitModel();
   }
   resetView(): void {
     this.assertAlive();
+    this.clearFraming(false);
     if (this.model && !this.model.disposed && this.authoredRotation) this.model.rotation.set(...this.authoredRotation);
-    this.fit();
+    this.fitModel();
     this.notifyIfChanged();
   }
   focus(preset: Sekai64FocusPreset): void {
     this.assertAlive();
-    if (preset === 'body') { this.fit(); return; }
+    this.clearFraming(false);
+    if (preset === 'body') { this.fitModel(); return; }
     const model = this.model;
     if (!model || model.disposed) return;
     const bounds = getNodeWorldBounds(model);
@@ -125,14 +142,28 @@ export class Sekai64AvatarCameraController {
       : Math.max(height * 0.43, depth * 2.0, this.controls.minDistance * 2);
     this.focusVector(target, distance);
   }
+  /**
+   * Responsive semantic framing. `portrait` includes authored hair plus upper torso/shoulders
+   * instead of fitting the avatar's entire body or T-pose width.
+   */
+  frame(preset: Sekai64FramePreset = 'body', options: Sekai64FrameOptions = {}): void {
+    this.assertAlive();
+    const state = normalizeFrameState(preset, options);
+    this.framing = state;
+    this.framingViewport = this.viewportSignature();
+    this.applyFrame(state, true);
+  }
+  clearFrame(): void { this.assertAlive(); this.clearFraming(true); }
   focusAt(target: ViewerVec3, distance = this.controls.getDistance()): void {
     this.assertAlive(); validateVector(target, 'focus target');
+    this.clearFraming(false);
     this.focusVector(new Vector3(...target), distance);
     this.notifyIfChanged();
   }
   focusHeight(ratio: number, distance = this.controls.getDistance()): void {
     this.assertAlive();
     if (!Number.isFinite(ratio)) throw new Error('Focus height ratio must be finite.');
+    this.clearFraming(false);
     const model = this.model;
     if (!model || model.disposed) return;
     const bounds = getNodeWorldBounds(model);
@@ -143,13 +174,18 @@ export class Sekai64AvatarCameraController {
     this.focusVector(center, distance);
     this.notifyIfChanged();
   }
-  focusUp(step = 0.035): void { this.nudgeFocus(Math.abs(step)); }
-  focusDown(step = 0.035): void { this.nudgeFocus(-Math.abs(step)); }
+  focusUp(step = 0.035): void { this.clearFraming(false); this.nudgeFocus(Math.abs(step)); }
+  focusDown(step = 0.035): void { this.clearFraming(false); this.nudgeFocus(-Math.abs(step)); }
   getFocusTarget(): ViewerVec3 { return tuple(this.controls.target); }
   zoomIn(): void { this.zoomBy(0.84); }
   zoomOut(): void { this.zoomBy(1.19); }
   rotateLeft(): void { this.rotateBy(-Math.PI / 14); }
   rotateRight(): void { this.rotateBy(Math.PI / 14); }
+  /** Exact orbit rotation in radians; useful for per-model front correction. */
+  rotateBy(angle: number): void {
+    this.assertAlive(); finite(angle, 'rotation angle');
+    this.rotateAroundTarget(angle);
+  }
   panBy(x: number, y: number): void {
     this.assertAlive(); finite(x, 'pan x'); finite(y, 'pan y');
     const distance = this.options.camera.position.distanceTo(this.controls.target);
@@ -170,6 +206,13 @@ export class Sekai64AvatarCameraController {
   setEnabled(enabled: boolean): void { this.assertAlive(); enabled ? this.controls.resume() : this.controls.pause(); this.notifyIfChanged(); }
   update(deltaSeconds: number): void {
     if (this.disposed) return;
+    if (this.framing?.responsive) {
+      const viewport = this.viewportSignature();
+      if (viewport && viewport !== this.framingViewport) {
+        this.framingViewport = viewport;
+        this.applyFrame(this.framing, false);
+      }
+    }
     this.controls.update(deltaSeconds);
     if (this.autoRotateValue && this.model && !this.model.disposed) this.model.rotation.y += this.autoRotateSpeedValue * Math.max(0, deltaSeconds);
     this.notifyIfChanged();
@@ -183,8 +226,54 @@ export class Sekai64AvatarCameraController {
     this.controls.dispose();
     this.listeners.clear();
     this.model = undefined;
+    this.framing = undefined;
+    this.framingRegion = undefined;
   }
 
+  private fitModel(): void {
+    const model = this.model;
+    if (!model || model.disposed) return;
+    const bounds = getNodeWorldBounds(model);
+    if (!bounds || bounds.isEmpty()) return;
+    const center = bounds.getCenter(new Vector3());
+    const size = bounds.getSize(new Vector3());
+    const maxDimension = Math.max(size.x, size.y, size.z, 0.001);
+    const radius = Math.max(0.001, size.length() * 0.5);
+    const fovRadians = ((this.options.camera as any).fieldOfView * Math.PI) / 180;
+    const fitDistance = Math.max(radius / Math.sin(Math.max(0.12, fovRadians * 0.5)), maxDimension * 1.1) * 1.18;
+    this.controls.target.copy(center);
+    this.options.camera.near = Math.max(0.001, fitDistance / 1000);
+    this.options.camera.far = Math.max(100, fitDistance * 80);
+    this.options.camera.position.copy(center).addScaledVector(this.initialViewDirection, fitDistance);
+    this.controls.minDistance = Math.max(radius * 0.08, 0.02);
+    this.controls.maxDistance = Math.max(fitDistance * 12, radius * 20);
+    this.controls.syncFromCamera();
+    this.controls.update(0);
+    this.notifyIfChanged();
+  }
+  private applyFrame(state: Sekai64FrameState, recomputeRegion: boolean): void {
+    const model = this.model;
+    if (!model || model.disposed) return;
+    let region = this.framingRegion;
+    if (recomputeRegion || !region) {
+      const bounds = getNodeWorldBounds(model);
+      if (!bounds || bounds.isEmpty()) return;
+      region = resolveFrameRegion(model, state.preset, bounds);
+      this.framingRegion = region;
+    }
+    const target = region.target.clone();
+    target.x += region.width * state.offsetX;
+    target.y += region.height * state.offsetY;
+
+    const fovRadians = ((this.options.camera as any).fieldOfView * Math.PI) / 180;
+    const tanHalfVertical = Math.max(0.001, Math.tan(Math.max(0.12, fovRadians * 0.5)));
+    const aspect = this.viewportAspect();
+    const verticalDistance = (region.height * 0.5) / (tanHalfVertical * state.coverage);
+    const horizontalDistance = (region.width * 0.5) / (tanHalfVertical * Math.max(0.1, aspect) * state.coverage);
+    const depthAllowance = region.depth * 0.5;
+    const distance = Math.max(verticalDistance, horizontalDistance) + depthAllowance;
+    this.focusVector(target, distance);
+  }
   private focusVector(target: Vector3, distance: number): void {
     const safeDistance = Math.max(this.controls.minDistance, Math.min(this.controls.maxDistance, distance));
     this.options.camera.near = Math.max(0.001, safeDistance / 1200);
@@ -212,7 +301,7 @@ export class Sekai64AvatarCameraController {
     this.controls.syncFromCamera();
     this.notifyIfChanged();
   }
-  private rotateBy(angle: number): void {
+  private rotateAroundTarget(angle: number): void {
     const target = this.controls.target;
     const offset = this.options.camera.position.clone().sub(target);
     const cosine = Math.cos(angle); const sine = Math.sin(angle);
@@ -223,6 +312,27 @@ export class Sekai64AvatarCameraController {
     this.controls.syncFromCamera();
     this.controls.update(0);
     this.notifyIfChanged();
+  }
+  private clearFraming(notify: boolean): void {
+    if (!this.framing) return;
+    this.framing = undefined;
+    this.framingRegion = undefined;
+    this.framingViewport = '';
+    if (notify) this.notifyIfChanged();
+  }
+  private viewportAspect(): number {
+    const target = this.eventTarget as any;
+    const width = Number(target?.clientWidth ?? target?.width ?? 0);
+    const height = Number(target?.clientHeight ?? target?.height ?? 0);
+    if (width > 0 && height > 0) return width / height;
+    const cameraAspect = Number((this.options.camera as any).aspect ?? (this.options.camera as any).aspectRatio ?? 1);
+    return Number.isFinite(cameraAspect) && cameraAspect > 0 ? cameraAspect : 1;
+  }
+  private viewportSignature(): string {
+    const target = this.eventTarget as any;
+    const width = Number(target?.clientWidth ?? target?.width ?? 0);
+    const height = Number(target?.clientHeight ?? target?.height ?? 0);
+    return width > 0 && height > 0 ? `${Math.round(width)}x${Math.round(height)}` : `aspect:${this.viewportAspect().toFixed(4)}`;
   }
   private attachPan(): void {
     this.eventTarget!.addEventListener('pointerdown', this.onPointerDown as EventListener);
@@ -251,7 +361,8 @@ export class Sekai64AvatarCameraController {
   private onContextMenu = (event: Event) => { if (this.pointerPan) event.preventDefault(); };
   private signature(): string {
     const p = this.options.camera.position, t = this.controls.target;
-    return `${this.model?.id ?? 'none'}|` + [p.x,p.y,p.z,t.x,t.y,t.z,this.controls.getDistance(),this.controls.enabled ? 1 : 0,this.autoRotateValue ? 1 : 0,this.autoRotateSpeedValue].map(value => Number(value).toFixed(6)).join('|');
+    const frame = this.framing ? `${this.framing.preset},${this.framing.coverage},${this.framing.offsetX},${this.framing.offsetY},${this.framing.responsive ? 1 : 0}` : 'none';
+    return `${this.model?.id ?? 'none'}|${frame}|` + [p.x,p.y,p.z,t.x,t.y,t.z,this.controls.getDistance(),this.controls.enabled ? 1 : 0,this.autoRotateValue ? 1 : 0,this.autoRotateSpeedValue].map(value => Number(value).toFixed(6)).join('|');
   }
   private notifyIfChanged(): void {
     const next = this.signature();
@@ -269,11 +380,21 @@ export class Sekai64AvatarCameraController {
       autoRotate: this.autoRotateValue,
       autoRotateSpeed: this.autoRotateSpeedValue,
       bounds: this.getBounds(),
+      framing: this.framing ? Object.freeze({ ...this.framing }) : null,
     });
   }
   private assertAlive(): void { if (this.disposed) throw new Error('Avatar camera controller is disposed.'); }
 }
 
+function normalizeFrameState(preset: Sekai64FramePreset, options: Sekai64FrameOptions): Sekai64FrameState {
+  const defaultCoverage = preset === 'portrait' ? 0.84 : preset === 'face' ? 0.86 : preset === 'eyes' ? 0.88 : 0.90;
+  const coverage = options.coverage ?? defaultCoverage;
+  if (!Number.isFinite(coverage) || coverage <= 0.1 || coverage > 0.98) throw new Error('Frame coverage must be > 0.1 and <= 0.98.');
+  const offsetX = options.offsetX ?? 0;
+  const offsetY = options.offsetY ?? 0;
+  finite(offsetX, 'frame offsetX'); finite(offsetY, 'frame offsetY');
+  return Object.freeze({ preset, coverage, offsetX, offsetY, responsive: options.responsive ?? false });
+}
 function tuple(value: Vector3): ViewerVec3 { return Object.freeze([value.x, value.y, value.z]) as ViewerVec3; }
 function finite(value: number, name: string) { if (!Number.isFinite(value)) throw new Error(`${name} must be finite.`); }
 function validateVector(value: ViewerVec3, name: string) { if (value.length !== 3 || value.some(component => !Number.isFinite(component))) throw new Error(`${name} must contain three finite numbers.`); }

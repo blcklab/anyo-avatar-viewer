@@ -1,6 +1,6 @@
 {
   "name": "@blcklab/anyo-avatar-viewer",
-  "version": "0.2.0-alpha.10",
+  "version": "0.2.0-alpha.11",
   "description": "Framework-independent avatar viewer core with VRM/VRMA playback, expressions, look-at, Sekai64 navigation, visual quality, and browser recovery.",
   "type": "module",
   "sideEffects": false,

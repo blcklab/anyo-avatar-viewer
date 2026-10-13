@@ -3,6 +3,14 @@ import type { GltfModelNode } from '@blcklab/sekai64/gltf';
 import type { ViewerBounds } from '../types.js';
 
 export type Sekai64FocusPreset = 'body' | 'face' | 'eyes';
+export type Sekai64FramePreset = 'body' | 'portrait' | 'face' | 'eyes';
+
+export interface Sekai64FrameRegion {
+  readonly target: Vector3;
+  readonly width: number;
+  readonly height: number;
+  readonly depth: number;
+}
 
 export function getNodeWorldBounds(root: GltfModelNode): Box3 | undefined {
   root.updateWorldFromRoot();
@@ -39,27 +47,18 @@ export function resolveFocusPoint(
   bounds: Box3,
 ): Vector3 {
   model.updateWorldFromRoot();
-  const document = model.asset.document as unknown as ExtendedGltfDocument;
-  const vrm1 = asRecord(document.extensions?.VRMC_vrm) as Vrm1Extension | undefined;
-  const vrm0 = asRecord(document.extensions?.VRM) as Vrm0Extension | undefined;
   const height = Math.max(bounds.max.y - bounds.min.y, 0.001);
-  const boneIndex = (name: string): number | undefined => {
-    const direct = vrm1?.humanoid?.humanBones?.[name]?.node;
-    if (typeof direct === 'number') return direct;
-    const legacy = vrm0?.humanoid?.humanBones?.find(item => item?.bone === name)?.node;
-    return typeof legacy === 'number' ? legacy : undefined;
-  };
 
   if (preset === 'eyes') {
-    const left = worldPositionForGltfNode(model, boneIndex('leftEye'));
-    const right = worldPositionForGltfNode(model, boneIndex('rightEye'));
+    const left = worldPositionForBone(model, 'leftEye');
+    const right = worldPositionForBone(model, 'rightEye');
     if (left && right) return left.add(right).multiplyScalar(0.5);
     if (left) return left;
     if (right) return right;
-    const head = worldPositionForGltfNode(model, boneIndex('head'));
+    const head = worldPositionForBone(model, 'head');
     if (head) return head.add(new Vector3(0, height * 0.075, 0));
   } else {
-    const head = worldPositionForGltfNode(model, boneIndex('head'));
+    const head = worldPositionForBone(model, 'head');
     if (head) return head.add(new Vector3(0, height * 0.035, 0));
   }
 
@@ -68,9 +67,82 @@ export function resolveFocusPoint(
   return center;
 }
 
+/**
+ * Semantic camera region used by responsive framing. Unlike `fit()`, portrait,
+ * face and eyes framing intentionally ignore full-body/T-pose width and derive
+ * a compact region from humanoid landmarks plus the authored model bounds.
+ */
+export function resolveFrameRegion(
+  model: GltfModelNode,
+  preset: Sekai64FramePreset,
+  bounds: Box3,
+): Sekai64FrameRegion {
+  model.updateWorldFromRoot();
+  const size = bounds.getSize(new Vector3());
+  const fullHeight = Math.max(size.y, 0.001);
+  const fullDepth = Math.max(size.z, 0.001);
+
+  if (preset === 'body') {
+    return {
+      target: bounds.getCenter(new Vector3()),
+      width: Math.max(size.x, 0.001),
+      height: fullHeight,
+      depth: fullDepth,
+    };
+  }
+
+  const top = bounds.max.y;
+  const face = resolveFocusPoint(model, preset === 'eyes' ? 'eyes' : 'face', bounds);
+  const neck = worldPositionForBone(model, 'neck');
+  const upperChest = worldPositionForBone(model, 'upperChest') ?? worldPositionForBone(model, 'chest');
+  const leftUpperArm = worldPositionForBone(model, 'leftUpperArm');
+  const rightUpperArm = worldPositionForBone(model, 'rightUpperArm');
+
+  if (preset === 'portrait') {
+    const semanticBottom = upperChest?.y ?? (top - fullHeight * 0.255);
+    const bottom = clamp(semanticBottom - fullHeight * 0.035, bounds.min.y, top - fullHeight * 0.20);
+    const height = clamp(top - bottom, fullHeight * 0.26, fullHeight * 0.36);
+    const shoulderWidth = leftUpperArm && rightUpperArm ? leftUpperArm.distanceTo(rightUpperArm) : 0;
+    const width = Math.max(shoulderWidth * 1.70, height * 0.68, fullHeight * 0.19);
+    const target = face.clone();
+    target.y = top - height * 0.50;
+    if (leftUpperArm && rightUpperArm) target.x = (leftUpperArm.x + rightUpperArm.x) * 0.5;
+    return { target, width, height, depth: Math.max(fullDepth * 0.82, height * 0.34) };
+  }
+
+  if (preset === 'face') {
+    const bottom = clamp((neck?.y ?? (face.y - fullHeight * 0.10)) - fullHeight * 0.018, bounds.min.y, top - fullHeight * 0.12);
+    const height = clamp(top - bottom, fullHeight * 0.17, fullHeight * 0.25);
+    const target = face.clone();
+    target.y = top - height * 0.50;
+    return { target, width: Math.max(height * 0.76, fullHeight * 0.15), height, depth: Math.max(fullDepth * 0.70, height * 0.34) };
+  }
+
+  const head = worldPositionForBone(model, 'head');
+  const bottom = clamp((head?.y ?? face.y) - fullHeight * 0.015, bounds.min.y, top - fullHeight * 0.08);
+  const height = clamp(top - bottom, fullHeight * 0.10, fullHeight * 0.17);
+  const target = face.clone();
+  target.y = top - height * 0.52;
+  return { target, width: Math.max(height * 1.10, fullHeight * 0.13), height, depth: Math.max(fullDepth * 0.60, height * 0.32) };
+}
+
 export function worldPositionForNode(node: Node): Vector3 {
   node.updateWorldFromRoot();
   return new Vector3().setFromMatrixPosition(node.worldMatrix);
+}
+
+function worldPositionForBone(model: GltfModelNode, name: string): Vector3 | undefined {
+  return worldPositionForGltfNode(model, humanoidBoneIndex(model, name));
+}
+
+function humanoidBoneIndex(model: GltfModelNode, name: string): number | undefined {
+  const document = model.asset.document as unknown as ExtendedGltfDocument;
+  const vrm1 = asRecord(document.extensions?.VRMC_vrm) as Vrm1Extension | undefined;
+  const vrm0 = asRecord(document.extensions?.VRM) as Vrm0Extension | undefined;
+  const direct = vrm1?.humanoid?.humanBones?.[name]?.node;
+  if (typeof direct === 'number') return direct;
+  const legacy = vrm0?.humanoid?.humanBones?.find(item => item?.bone === name)?.node;
+  return typeof legacy === 'number' ? legacy : undefined;
 }
 
 function worldPositionForGltfNode(model: GltfModelNode, index: number | undefined): Vector3 | undefined {
@@ -86,6 +158,7 @@ function worldPositionForGltfNode(model: GltfModelNode, index: number | undefine
 function tuple(vector: Vector3): readonly [number, number, number] {
   return Object.freeze([vector.x, vector.y, vector.z]) as readonly [number, number, number];
 }
+function clamp(value: number, min: number, max: number): number { return Math.max(min, Math.min(max, value)); }
 function asRecord(value: unknown): Record<string, any> | undefined {
   return value !== null && typeof value === 'object' ? value as Record<string, any> : undefined;
 }

@@ -1,5 +1,6 @@
 import type {
   AnimationSource,
+  ClipInfo,
   LoadOptions,
   ModelSession,
   ModelSource,
@@ -67,20 +68,23 @@ export class AvatarViewer {
     } finally { operation.cleanup(); }
   }
 
-  async loadAnimation(source: AnimationSource, options: LoadOptions = {}): Promise<void> {
+  async loadAnimation(source: AnimationSource, options: LoadOptions = {}): Promise<readonly ClipInfo[]> {
     const session = this.requireSession();
     if (!source.url.trim()) throw new Error('Animation URL must not be empty.');
     options.signal?.throwIfAborted();
     const generation = this.generation;
     const operation = this.operation(options.signal);
     const input = { ...source, nodeMap: source.nodeMap ? Object.freeze({ ...source.nodeMap }) : undefined };
+    const before = new Set(session.clips.map(clip => clip.id));
     this.patch({ loadingAnimations: this.state.loadingAnimations + 1, error: null });
     let prepared;
     try {
       prepared = await session.prepareAnimations(input, operation.controller.signal);
       this.checkOperation(generation, operation.controller.signal);
       session.installAnimations(prepared);
-      this.patch({ clips: this.clipSnapshot() });
+      const clips = this.clipSnapshot();
+      this.patch({ clips });
+      return Object.freeze(clips.filter(clip => !before.has(clip.id)));
     } catch (error) {
       if (generation === this.generation && this.state.phase !== 'disposed' && !operation.controller.signal.aborted) this.patch({ error: message(error) });
       throw error;

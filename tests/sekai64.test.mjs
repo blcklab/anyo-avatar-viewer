@@ -49,8 +49,9 @@ const modelSource = (options = {}) => ({ url: fixture(options), format: 'gltf' }
 test('VRM metadata and skin load once, external glTF animates a model with no embedded mixer', async () => {
   const env = environment(); await env.viewer.loadModel(modelSource());
   assert.equal(env.module.mixers.size, 0); assert.equal(env.viewer.getSnapshot().clips.length, 0);
-  await env.viewer.loadAnimation({ url: fixture({ embedded: true }), format: 'gltf' });
-  const id = env.viewer.getSnapshot().clips[0].id; env.viewer.play(id, { loop: 'once' });
+  const loaded = await env.viewer.loadAnimation({ url: fixture({ embedded: true }), format: 'gltf' });
+  assert.equal(loaded.length, 1);
+  const id = loaded[0].id; env.viewer.play(id, { loop: 'once' });
   for (let i = 0; i < 5; i++) env.viewer.update(0.1);
   env.module.update(0);
   let bone, body; env.scene.traverse(node => { if (node.name === 'Hips') bone = node; if (node.name === 'Body') body = node; });
@@ -142,7 +143,16 @@ test('Sekai64 camera controller provides fit, focus, zoom, rotate, pan, and auth
   const changesBeforeFocus = cameraChanges;
   controls.focus('face'); assert.ok(controls.getFocusTarget()[1] > fitted.bounds.min[1]);
   assert.ok(cameraChanges > changesBeforeFocus, 'programmatic focus must notify camera subscribers');
-  controls.focus('eyes'); controls.focusHeight(0.5); controls.focusUp(); controls.focusDown();
+  controls.frame('portrait', { coverage: 0.84, responsive: true });
+  const portrait = controls.getSnapshot();
+  assert.equal(portrait.framing?.preset, 'portrait');
+  assert.ok(portrait.distance < fitted.distance, 'portrait framing should move closer than full-body fit');
+  const portraitDistance = portrait.distance; camera.aspect = 0.5; controls.update(0);
+  assert.ok(controls.getSnapshot().distance >= portraitDistance, 'responsive portrait framing should adapt to a narrower aspect');
+  const beforeExactRotate = [...controls.getSnapshot().position]; controls.rotateBy(Math.PI); assert.notDeepEqual(controls.getSnapshot().position, beforeExactRotate);
+  assert.equal(controls.getSnapshot().framing?.preset, 'portrait', 'exact rotation must preserve active framing');
+  controls.focus('eyes'); assert.equal(controls.getSnapshot().framing, null, 'explicit focus exits semantic framing');
+  controls.focusHeight(0.5); controls.focusUp(); controls.focusDown();
   controls.setAutoRotate(true); controls.setAutoRotateSpeed(0.5); controls.update(1); assert.notEqual(model.rotation.y, 0.2);
   controls.resetView(); assert.ok(Math.abs(model.rotation.y - 0.2) < 0.0001);
   unsubscribeCamera(); controls.dispose(); camera.dispose(); await env.dispose();

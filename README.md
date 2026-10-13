@@ -2,7 +2,7 @@
 
 Framework-independent avatar viewer core for VRM/GLB models, VRMA and glTF animation, expressions, look-at, camera navigation, high-quality Sekai64 rendering, and browser recovery.
 
-> `0.2.0-alpha.10` is a prerelease and is published under the `next` npm dist-tag.
+> `0.2.0-alpha.11` is a candidate prerelease intended for the `next` npm dist-tag.
 
 ## Installation
 
@@ -31,16 +31,15 @@ await runtime.viewer.loadModel({
   format: 'vrm',
 })
 
-await runtime.viewer.loadAnimation({
+const loaded = await runtime.viewer.loadAnimation({
   url: '/idle.vrma',
   format: 'vrma',
 })
 
-const clip = runtime.viewer.getSnapshot().clips[0]
+const clip = loaded[0]
 if (clip) runtime.viewer.play(clip.id, { loop: 'repeat' })
 
-runtime.navigation.focus('face')
-runtime.navigation.fit()
+runtime.navigation.frame('portrait', { responsive: true })
 ```
 
 ## Model and animation support
@@ -55,13 +54,15 @@ Separate glTF animation files must use a compatible rig/rest hierarchy. Use VRMA
 
 ## Camera and interaction
 
-The browser runtime exposes headless navigation APIs for orbit, zoom, pan, fit/reset, auto-rotate, and body/face/eyes focus. Frameworks can bind controls to these APIs without duplicating camera logic.
+The browser runtime exposes headless navigation APIs for orbit, zoom, pan, full-body fit/reset, auto-rotate, point focus, and semantic responsive framing. `frame('portrait')` intentionally frames authored hair plus upper torso/shoulders instead of the avatar's whole body/T-pose width. Frameworks can bind controls to these APIs without duplicating camera logic.
 
 ```js
 runtime.navigation.zoomIn()
 runtime.navigation.rotateLeft()
 runtime.navigation.panBy(20, -10)
 runtime.navigation.focus('eyes')
+runtime.navigation.frame('portrait', { coverage: 0.84, responsive: true })
+runtime.navigation.rotateBy(Math.PI) // exact per-model front correction when needed
 runtime.navigation.resetView()
 ```
 

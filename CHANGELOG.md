@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.0-alpha.11
+
+- Add semantic camera framing with `body`, `portrait`, `face`, and `eyes` regions. `portrait` uses humanoid landmarks and authored model/hair bounds instead of full-body/T-pose fit bounds.
+- Add responsive framing that recomputes camera distance when the render surface aspect changes, plus `coverage`, `offsetX`, and `offsetY` art-direction controls.
+- Add exact-radian `navigation.rotateBy()` for per-model orientation correction without repeated step rotations.
+- Return newly installed clip records from `AvatarViewer.loadAnimation()` so framework adapters can reliably select the animation that was just loaded.
+- Preserve active semantic framing across zoom/orbit/pan adjustments; explicit point focus, fit, or reset exits framing mode.
+
 ## 0.2.0-alpha.10
 
 - Harden GPU recovery during viewer disposal: asynchronous renderer/module recovery no longer resumes rendering, retries, or mutates disposed state after the host is destroyed.
