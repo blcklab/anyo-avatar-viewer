@@ -4,6 +4,23 @@ import type { ViewerBounds } from '../types.js';
 
 export type Sekai64FocusPreset = 'body' | 'face' | 'eyes';
 export type Sekai64FramePreset = 'body' | 'portrait' | 'face' | 'eyes';
+export type Sekai64ViewPreset = 'front' | 'back' | 'left' | 'right';
+
+/**
+ * Absolute camera azimuth for semantic avatar views.
+ *
+ * VRM 0.x stores avatars facing Z-, while VRM 1.0 stores them facing Z+.
+ * A camera placed on the same forward axis therefore sees the avatar from the front.
+ * Generic glTF falls back to Z+ because glTF itself does not define humanoid forward.
+ */
+export function resolveViewAzimuth(model: GltfModelNode, preset: Sekai64ViewPreset): number {
+  const document = model.asset.document as unknown as ExtendedGltfDocument;
+  const front = document.extensions?.VRM ? Math.PI : 0;
+  if (preset === 'front') return front;
+  if (preset === 'back') return front + Math.PI;
+  if (preset === 'left') return front - Math.PI * 0.5;
+  return front + Math.PI * 0.5;
+}
 
 export interface Sekai64FrameRegion {
   readonly target: Vector3;

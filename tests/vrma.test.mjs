@@ -51,6 +51,35 @@ test('VRM 0 coordinate conversion flips motion X/Z, including rotations', async 
     e.sample(1); close([e.node(0).position.x,e.node(0).position.y,e.node(0).position.z], [-2,2,0]); sameRotation(quat(e.node(1)), [-s,0,0,s]);
   } finally { await e.dispose(); }
 });
+
+test('VRMA heading normalization starts hips facing forward and rotates hips displacement with the same correction', async () => {
+  const yaw90 = [0, s, 0, s];
+  const e = env({ vrma: { heading: 'normalize' } });
+  try {
+    await e.model();
+    await e.motion(motionDocument({ channels: [
+      { node: 0, path: 'rotation', values: [...yaw90, ...yaw90] },
+      { node: 0, path: 'translation', values: [0,1,0, 1,1,0] },
+    ] }));
+    e.sample(0);
+    sameRotation(quat(e.node(0)), [0,0,0,1]);
+    e.sample(1);
+    sameRotation(quat(e.node(0)), [0,0,0,1]);
+    close([e.node(0).position.x,e.node(0).position.y,e.node(0).position.z], [0,2,2]);
+    assert.ok(e.diagnostics.some(message => message.includes('Normalized VRMA initial heading')));
+  } finally { await e.dispose(); }
+});
+
+test('VRMA preserves authored hips heading by default', async () => {
+  const e = env();
+  try {
+    await e.model();
+    await e.motion(motionDocument({ channels: [{ node: 0, path: 'rotation', values: [0,s,0,s, 0,s,0,s] }] }));
+    e.sample(0);
+    sameRotation(quat(e.node(0)), [0,s,0,s]);
+  } finally { await e.dispose(); }
+});
+
 test('missing optional ancestors are folded into mapped descendants', async () => {
   const e = env(); try {
     await e.model();

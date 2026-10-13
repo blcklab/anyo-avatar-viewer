@@ -14,6 +14,12 @@ export interface VrmAnimationImporterOptions {
   readonly unmappedNodes?: 'error' | 'skip' | 'exact-match';
   /** Bake rate when an absent optional ancestor must be folded into a descendant. */
   readonly bakeRate?: number;
+  /**
+   * Initial humanoid heading policy. `normalize` removes the first hips yaw from the clip
+   * and rotates hips translation by the same constant correction, so a motion begins facing
+   * the avatar's authored forward axis while preserving later turns. Defaults to `preserve`.
+   */
+  readonly heading?: 'preserve' | 'normalize';
 }
 const requiredBones = new Set(['hips', 'spine', 'head', 'leftUpperArm', 'leftLowerArm', 'leftHand', 'rightUpperArm', 'rightLowerArm', 'rightHand', 'leftUpperLeg', 'leftLowerLeg', 'leftFoot', 'rightUpperLeg', 'rightLowerLeg', 'rightFoot']);
 const extensionId = 'anyo.avatar-viewer.vrma';
@@ -23,6 +29,7 @@ export function createVrmAnimationImporter(options: VrmAnimationImporterOptions 
   if (!Number.isFinite(rate) || rate < 1 || rate > 120) throw new Error('VRMA bakeRate must be between 1 and 120.');
   if (options.unsupportedFeatures !== undefined && !['error', 'skip'].includes(options.unsupportedFeatures)) throw new Error('Invalid VRMA unsupportedFeatures policy.');
   if (options.unmappedNodes !== undefined && !['error', 'skip', 'exact-match'].includes(options.unmappedNodes)) throw new Error('Invalid VRMA unmappedNodes policy.');
+  if (options.heading !== undefined && !['preserve', 'normalize'].includes(options.heading)) throw new Error('Invalid VRMA heading policy.');
   return {
     formats: ['vrma'],
     async load(context) {
@@ -40,13 +47,13 @@ export function createVrmAnimationImporter(options: VrmAnimationImporterOptions 
         context.signal.throwIfAborted();
         const raw = asset.getExtension<GltfAnimationFinalizeContext>(extensionId);
         if (!raw) throw new Error('VRMA animation data was not loaded.');
-        return retarget(raw, context, rate, options.unsupportedFeatures ?? 'error', options.unmappedNodes ?? 'error');
+        return retarget(raw, context, rate, options.unsupportedFeatures ?? 'error', options.unmappedNodes ?? 'error', options.heading ?? 'preserve');
       } finally { asset?.dispose(); prepared.dispose(); loader.dispose(); }
     },
   };
 }
 
-function retarget(raw: GltfAnimationFinalizeContext, context: AnimationImportContext, bakeRate: number, unsupported: 'error' | 'skip', unmappedNodes: 'error' | 'skip' | 'exact-match'): readonly AnimationClip[] {
+function retarget(raw: GltfAnimationFinalizeContext, context: AnimationImportContext, bakeRate: number, unsupported: 'error' | 'skip', unmappedNodes: 'error' | 'skip' | 'exact-match', heading: 'preserve' | 'normalize'): readonly AnimationClip[] {
   const ext = object(raw.document.extensions?.VRMC_vrm_animation);
   if (ext.specVersion !== '1.0') throw new Error('Expected VRMC_vrm_animation specVersion "1.0". Draft or missing VRMA metadata is unsupported.');
   const rig = context.vrm!;
@@ -141,6 +148,15 @@ function retarget(raw: GltfAnimationFinalizeContext, context: AnimationImportCon
       const seen = new Set<string>();
       let duration = 0;
       let exactPassThrough = 0;
+      let hipsTranslation: {
+        targetId: string;
+        times: Float32Array;
+        values: Float32Array;
+        interpolation: 'step' | 'linear';
+        restLocal: readonly [number, number, number];
+      } | undefined;
+      let headingCorrection: Quat | undefined;
+      let headingCorrectionAngle: number | undefined;
       for (const channel of animation.channels) {
         const nodeIndex = channel.target.node;
         if (typeof nodeIndex !== 'number' || !Number.isInteger(nodeIndex) || !raw.document.nodes?.[nodeIndex]) {
@@ -208,7 +224,13 @@ function retarget(raw: GltfAnimationFinalizeContext, context: AnimationImportCon
             const desired = [targetRest[0] + (p[0] - sourceRest[0]) * ratio * flip, targetRest[1] + (p[1] - sourceRest[1]) * ratio, targetRest[2] + (p[2] - sourceRest[2]) * ratio * flip] as const;
             converted.set(transform(desired, toLocal), index * 3);
           }
-          output.push(new AnimationTrack({ target: targetId, path: 'translation', times, values: converted, interpolation: track.interpolation }));
+          hipsTranslation = {
+            targetId,
+            times,
+            values: converted,
+            interpolation: track.interpolation,
+            restLocal: position(matrix(targets.get(targetId)!.restMatrix)),
+          };
         }
       }
       if (exactPassThrough) context.onDiagnostic?.(`Preserved ${exactPassThrough} source-specific VRMA channel${exactPassThrough === 1 ? '' : 's'} by exact node/rest/hierarchy match.`);
@@ -260,7 +282,29 @@ function retarget(raw: GltfAnimationFinalizeContext, context: AnimationImportCon
           const converted = multiply(multiply(multiply(targetLocal, inverse(targetGlobal)), normalized), targetGlobal);
           values.set(converted, index * 4);
         }
+        if (name === 'hips' && heading === 'normalize' && times.length) {
+          const first = normalize(values, 0);
+          const yaw = yawFromQuaternion(first);
+          if (Math.abs(yaw) > 1e-7) {
+            headingCorrectionAngle = -yaw;
+            headingCorrection = yawQuaternion(headingCorrectionAngle);
+            for (let sample = 0; sample < times.length; sample++) {
+              values.set(multiply(headingCorrection, normalize(values, sample * 4)), sample * 4);
+            }
+            context.onDiagnostic?.(`Normalized VRMA initial heading by ${(-yaw * 180 / Math.PI).toFixed(2)} degrees.`);
+          }
+        }
         output.push(new AnimationTrack({ target: id, path: 'rotation', times, values, interpolation }));
+      }
+      if (hipsTranslation) {
+        if (headingCorrectionAngle !== undefined) rotateHipsTranslation(hipsTranslation.values, hipsTranslation.restLocal, headingCorrectionAngle);
+        output.push(new AnimationTrack({
+          target: hipsTranslation.targetId,
+          path: 'translation',
+          times: hipsTranslation.times,
+          values: hipsTranslation.values,
+          interpolation: hipsTranslation.interpolation,
+        }));
       }
       const bound = new Set<string>();
       for (const track of output) { const key = `${track.target}:${track.path}`; if (bound.has(key)) throw new Error(`VRMA channels overlap on target: ${key}`); bound.add(key); }
@@ -270,4 +314,24 @@ function retarget(raw: GltfAnimationFinalizeContext, context: AnimationImportCon
     if (!result.length) throw new Error('VRMA file contains no animations.');
     return result;
   } catch (error) { for (const clip of result) clip.dispose(); throw error; }
+}
+
+function yawFromQuaternion(q: Quat): number {
+  const [x, y, z, w] = q;
+  const forwardX = 2 * (x * z + w * y);
+  const forwardZ = 1 - 2 * (x * x + y * y);
+  return Math.atan2(forwardX, forwardZ);
+}
+function yawQuaternion(angle: number): Quat {
+  const half = angle * 0.5;
+  return [0, Math.sin(half), 0, Math.cos(half)];
+}
+function rotateHipsTranslation(values: Float32Array, rest: readonly [number, number, number], angle: number): void {
+  const cosine = Math.cos(angle), sine = Math.sin(angle);
+  for (let index = 0; index < values.length; index += 3) {
+    const x = values[index]! - rest[0];
+    const z = values[index + 2]! - rest[2];
+    values[index] = rest[0] + x * cosine + z * sine;
+    values[index + 2] = rest[2] - x * sine + z * cosine;
+  }
 }

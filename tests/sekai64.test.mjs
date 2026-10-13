@@ -151,9 +151,36 @@ test('Sekai64 camera controller provides fit, focus, zoom, rotate, pan, and auth
   assert.ok(controls.getSnapshot().distance >= portraitDistance, 'responsive portrait framing should adapt to a narrower aspect');
   const beforeExactRotate = [...controls.getSnapshot().position]; controls.rotateBy(Math.PI); assert.notDeepEqual(controls.getSnapshot().position, beforeExactRotate);
   assert.equal(controls.getSnapshot().framing?.preset, 'portrait', 'exact rotation must preserve active framing');
+  controls.setView('front');
+  controls.setElevation(0); assert.ok(Math.abs(controls.getSnapshot().elevation) < 0.0001);
+  const front = controls.getSnapshot();
+  assert.ok(Math.abs(front.position[0] - front.target[0]) < 0.0001, 'VRM 1 front view must center the camera on the Z axis');
+  assert.ok(front.position[2] > front.target[2], 'VRM 1 front view must use Z+');
+  controls.setAzimuth(Math.PI / 2);
+  const right = controls.getSnapshot();
+  assert.ok(right.position[0] > right.target[0] && Math.abs(right.position[2] - right.target[2]) < 0.0001, 'absolute azimuth must be deterministic');
   controls.focus('eyes'); assert.equal(controls.getSnapshot().framing, null, 'explicit focus exits semantic framing');
   controls.focusHeight(0.5); controls.focusUp(); controls.focusDown();
   controls.setAutoRotate(true); controls.setAutoRotateSpeed(0.5); controls.update(1); assert.notEqual(model.rotation.y, 0.2);
   controls.resetView(); assert.ok(Math.abs(model.rotation.y - 0.2) < 0.0001);
   unsubscribeCamera(); controls.dispose(); camera.dispose(); await env.dispose();
+});
+
+
+test('Sekai64 semantic front view follows VRM 0 Z- forward', async () => {
+  const env = environment();
+  await env.viewer.loadModel({ url: dataUrl(avatarDocument({ legacy: true })), format: 'vrm' });
+  const model = env.scene.children.find(node => node.asset);
+  assert.ok(model);
+  const camera = new PerspectiveCamera({ fieldOfView: 42, near: 0.01, far: 10000, autoAspect: true });
+  camera.position.set(3.4, 2.15, 4.2);
+  const controls = new Sekai64AvatarCameraController({ camera, autoFit: true });
+  controls.attachModel(model);
+  controls.frame('portrait', { responsive: true });
+  controls.setView('front');
+  const front = controls.getSnapshot();
+  assert.ok(Math.abs(front.position[0] - front.target[0]) < 0.0001);
+  assert.ok(front.position[2] < front.target[2], 'VRM 0 front view must use Z-');
+  assert.equal(front.framing?.preset, 'portrait', 'semantic view must preserve active framing');
+  controls.dispose(); camera.dispose(); await env.dispose();
 });

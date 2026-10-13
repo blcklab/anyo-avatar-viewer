@@ -1,4 +1,4 @@
-# Reusable core capability surface — 0.2.0-alpha.11
+# Reusable core capability surface — 0.2.0-alpha.12
 
 This document defines what belongs in `@blcklab/anyo-avatar-viewer` before any Vue, React, Svelte, or other adapter is introduced.
 

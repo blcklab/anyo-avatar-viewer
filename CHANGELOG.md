@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.0-alpha.13
+
+- Added absolute vertical camera orbit with `setElevation()` and snapshot `elevation`.
+- `setView()` now accepts an optional `{ elevation }` so semantic front/back/side views can also define eye-level or slight low/high-angle presentation without application camera math.
+
+## 0.2.0-alpha.12
+
+- Added version-aware semantic camera views with `setView('front' | 'back' | 'left' | 'right')` and absolute `setAzimuth()` navigation.
+- Added optional VRMA `heading: 'normalize'` import policy to remove an animation's initial hips yaw while preserving later turns and rotating hips translation consistently.
+- Camera snapshots now expose the current absolute azimuth.
+
+
 ## 0.2.0-alpha.11
 
 - Add semantic camera framing with `body`, `portrait`, `face`, and `eyes` regions. `portrait` uses humanoid landmarks and authored model/hair bounds instead of full-body/T-pose fit bounds.

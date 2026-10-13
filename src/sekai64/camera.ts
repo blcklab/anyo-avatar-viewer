@@ -7,9 +7,11 @@ import {
   getViewerBounds,
   resolveFocusPoint,
   resolveFrameRegion,
+  resolveViewAzimuth,
   type Sekai64FocusPreset,
   type Sekai64FramePreset,
   type Sekai64FrameRegion,
+  type Sekai64ViewPreset,
 } from './model-info.js';
 
 export interface Sekai64AvatarCameraOptions {
@@ -31,6 +33,10 @@ export interface Sekai64FrameOptions {
   /** Recompute distance when the render surface changes aspect/size. Defaults to false. */
   readonly responsive?: boolean;
 }
+export interface Sekai64ViewOptions {
+  /** Vertical orbit in radians. 0 is eye-level; positive places the camera above the target. */
+  readonly elevation?: number;
+}
 export interface Sekai64FrameState {
   readonly preset: Sekai64FramePreset;
   readonly coverage: number;
@@ -42,6 +48,10 @@ export interface Sekai64AvatarCameraSnapshot {
   readonly target: ViewerVec3;
   readonly position: ViewerVec3;
   readonly distance: number;
+  /** Horizontal camera orbit in radians. 0 is +Z, positive rotates toward +X. */
+  readonly azimuth: number;
+  /** Vertical camera orbit in radians. 0 is eye-level; positive is above the target. */
+  readonly elevation: number;
   readonly enabled: boolean;
   readonly autoRotate: boolean;
   readonly autoRotateSpeed: number;
@@ -181,10 +191,63 @@ export class Sekai64AvatarCameraController {
   zoomOut(): void { this.zoomBy(1.19); }
   rotateLeft(): void { this.rotateBy(-Math.PI / 14); }
   rotateRight(): void { this.rotateBy(Math.PI / 14); }
-  /** Exact orbit rotation in radians; useful for per-model front correction. */
+  /** Relative orbit rotation in radians. */
   rotateBy(angle: number): void {
     this.assertAlive(); finite(angle, 'rotation angle');
     this.rotateAroundTarget(angle);
+  }
+  /**
+   * Absolute horizontal orbit in radians. 0 places the camera on +Z looking at the target.
+   * Distance, elevation and active semantic framing are preserved.
+   */
+  setAzimuth(angle: number): void {
+    this.assertAlive(); finite(angle, 'azimuth');
+    const target = this.controls.target;
+    const offset = this.options.camera.position.clone().sub(target);
+    const horizontal = Math.hypot(offset.x, offset.z);
+    if (horizontal < 1e-8) {
+      const distance = Math.max(this.controls.minDistance, offset.length());
+      offset.x = Math.sin(angle) * distance;
+      offset.z = Math.cos(angle) * distance;
+      offset.y = 0;
+    } else {
+      offset.x = Math.sin(angle) * horizontal;
+      offset.z = Math.cos(angle) * horizontal;
+    }
+    this.options.camera.position.copy(target).add(offset);
+    this.controls.syncFromCamera();
+    this.controls.update(0);
+    this.notifyIfChanged();
+  }
+  /** Absolute vertical orbit in radians. 0 is eye-level; positive is above the target. */
+  setElevation(angle: number): void {
+    this.assertAlive(); finite(angle, 'elevation');
+    const maxElevation = Math.PI * 0.5 - 0.06;
+    const clamped = Math.max(-maxElevation, Math.min(maxElevation, angle));
+    const target = this.controls.target;
+    const offset = this.options.camera.position.clone().sub(target);
+    const distance = Math.max(this.controls.minDistance, offset.length());
+    const azimuth = this.getAzimuth();
+    const horizontal = Math.cos(clamped) * distance;
+    offset.x = Math.sin(azimuth) * horizontal;
+    offset.z = Math.cos(azimuth) * horizontal;
+    offset.y = Math.sin(clamped) * distance;
+    this.options.camera.position.copy(target).add(offset);
+    this.controls.syncFromCamera();
+    this.controls.update(0);
+    this.notifyIfChanged();
+  }
+  /**
+   * Version-aware semantic orbit. `front` follows VRM's authored forward axis:
+   * VRM 0.x = Z-, VRM 1.0 = Z+. Generic glTF falls back to Z+.
+   * Pass `elevation` when a view should also define its vertical presentation angle.
+   */
+  setView(preset: Sekai64ViewPreset, options: Sekai64ViewOptions = {}): void {
+    this.assertAlive();
+    const model = this.model;
+    if (!model || model.disposed) return;
+    this.setAzimuth(resolveViewAzimuth(model, preset));
+    if (options.elevation !== undefined) this.setElevation(options.elevation);
   }
   panBy(x: number, y: number): void {
     this.assertAlive(); finite(x, 'pan x'); finite(y, 'pan y');
@@ -278,7 +341,16 @@ export class Sekai64AvatarCameraController {
     const safeDistance = Math.max(this.controls.minDistance, Math.min(this.controls.maxDistance, distance));
     this.options.camera.near = Math.max(0.001, safeDistance / 1200);
     this.options.camera.far = Math.max(100, safeDistance * 120);
-    this.controls.focus(target, safeDistance);
+    // Keep the current orbit direction while changing semantic target/distance. This makes
+    // responsive framing composable with setView()/user orbit instead of snapping back to
+    // whatever default direction the underlying controls choose for focus().
+    const direction = this.options.camera.position.clone().sub(this.controls.target);
+    if (direction.lengthSquared() < 1e-12) direction.copy(this.initialViewDirection);
+    direction.normalize();
+    this.controls.target.copy(target);
+    this.options.camera.position.copy(target).addScaledVector(direction, safeDistance);
+    this.controls.syncFromCamera();
+    this.controls.update(0);
     this.notifyIfChanged();
   }
   private nudgeFocus(step: number): void {
@@ -312,6 +384,14 @@ export class Sekai64AvatarCameraController {
     this.controls.syncFromCamera();
     this.controls.update(0);
     this.notifyIfChanged();
+  }
+  private getAzimuth(): number {
+    const offset = this.options.camera.position.clone().sub(this.controls.target);
+    return Math.atan2(offset.x, offset.z);
+  }
+  private getElevation(): number {
+    const offset = this.options.camera.position.clone().sub(this.controls.target);
+    return Math.atan2(offset.y, Math.hypot(offset.x, offset.z));
   }
   private clearFraming(notify: boolean): void {
     if (!this.framing) return;
@@ -376,6 +456,8 @@ export class Sekai64AvatarCameraController {
       target: tuple(this.controls.target),
       position: tuple(this.options.camera.position),
       distance: this.controls.getDistance(),
+      azimuth: this.getAzimuth(),
+      elevation: this.getElevation(),
       enabled: this.controls.enabled,
       autoRotate: this.autoRotateValue,
       autoRotateSpeed: this.autoRotateSpeedValue,

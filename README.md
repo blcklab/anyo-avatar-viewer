@@ -2,7 +2,7 @@
 
 Framework-independent avatar viewer core for VRM/GLB models, VRMA and glTF animation, expressions, look-at, camera navigation, high-quality Sekai64 rendering, and browser recovery.
 
-> `0.2.0-alpha.11` is a candidate prerelease intended for the `next` npm dist-tag.
+> `0.2.0-alpha.12` is a candidate prerelease intended for the `next` npm dist-tag.
 
 ## Installation
 
@@ -103,3 +103,23 @@ await runtime.dispose()
 ## License
 
 MIT
+
+
+### Semantic portrait + front view
+
+The camera controller separates composition from orbit direction. Use `frame('portrait')` for responsive upper-body framing and `setView('front')` for a version-aware straight-on camera. VRM 0.x uses Z- forward while VRM 1.0 uses Z+ forward.
+
+```ts
+runtime.navigation.frame('portrait', { coverage: 0.9, responsive: true })
+runtime.navigation.setView('front', { elevation: 0 })
+// Or adjust pitch independently:
+runtime.navigation.setElevation(-0.035)
+```
+
+For VRMA files authored with a sideways initial hips heading, opt into heading normalization when creating the viewer/backend:
+
+```ts
+vrma: { heading: 'normalize' }
+```
+
+This removes only the clip's initial heading offset and applies the same constant correction to hips translation; later turns remain part of the motion.
